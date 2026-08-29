@@ -5,3 +5,6 @@
 - Enforce gateway, dispute-reason, and reconciliation-reference invariants in payment lifecycle actions.
 
 - Add the independent provider-neutral Payments capability.
+## Unreleased
+
+- Enforce invoice remaining balances for allocations and mark fully allocated invoices paid.
