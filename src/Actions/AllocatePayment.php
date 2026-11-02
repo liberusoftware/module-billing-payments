@@ -7,6 +7,7 @@ namespace Liberu\Billing\Payments\Actions;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\Facades\Schema;
 use Liberu\Billing\Payments\Enums\PaymentStatus;
+use Liberu\Billing\Payments\Events\PaymentAllocated;
 use Liberu\Billing\Payments\Models\Payment;
 use Liberu\Billing\Payments\Models\PaymentAllocation;
 
@@ -29,7 +30,7 @@ final readonly class AllocatePayment
                 if ($invoice === null || ($invoice->team_id !== null && ($locked->team_id === null || (int) $invoice->team_id !== (int) $locked->team_id)) || ($invoice->customer_id !== null && ($locked->customer_id === null || (int) $invoice->customer_id !== (int) $locked->customer_id))) {
                     throw new \InvalidArgumentException('Payment invoice reference is invalid.');
                 }
-                if ($invoice->status === 'void' || strtoupper((string) $invoice->currency) !== strtoupper((string) $locked->currency)) {
+                if (! in_array($invoice->status, ['finalized', 'partially_paid'], true) || strtoupper((string) $invoice->currency) !== strtoupper((string) $locked->currency)) {
                     throw new \InvalidArgumentException('Payment invoice reference is invalid.');
                 }
                 $invoiceAllocated = (int) $this->database->table('billing_payment_allocations')->where('invoice_id', $invoiceId)->sum('amount_minor');
@@ -44,9 +45,12 @@ final readonly class AllocatePayment
             $allocation = PaymentAllocation::query()->create([
                 'payment_id' => $locked->getKey(), 'invoice_id' => $invoiceId, 'amount_minor' => $amountMinor, 'currency' => $locked->currency,
             ]);
-            if ($invoice !== null && (int) $invoice->total_minor > 0 && $invoiceAllocated + $amountMinor >= (int) $invoice->total_minor) {
-                $this->database->table('billing_invoices')->where('id', $invoiceId)->update(['status' => 'paid', 'updated_at' => now()]);
+            if ($invoice !== null && (int) $invoice->total_minor > 0) {
+                $newStatus = $invoiceAllocated + $amountMinor >= (int) $invoice->total_minor ? 'paid' : 'partially_paid';
+                $this->database->table('billing_invoices')->where('id', $invoiceId)->update(['status' => $newStatus, 'updated_at' => now()]);
             }
+
+            PaymentAllocated::dispatch($allocation);
 
             return $allocation;
         });
